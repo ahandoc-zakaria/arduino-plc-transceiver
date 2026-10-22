@@ -5,7 +5,7 @@
 
 namespace {
 
-constexpr uint32_t DEFAULT_BIT_RATE = 1000;
+constexpr uint32_t DEFAULT_BIT_RATE = 25000;
 constexpr uint32_t MIN_BIT_RATE = 1000;
 constexpr uint32_t MAX_BIT_RATE = 50000;
 constexpr uint8_t RECEIVER_PIN = 2;
@@ -36,7 +36,11 @@ enum class ProtocolStage : uint8_t {
 
 volatile SampleStage sampleStage = SampleStage::Idle;
 volatile bool receivingByte = false;
-volatile uint8_t halfTicks = 0;
+
+constexpr uint8_t SAMPLES_PER_BIT = 8;
+
+volatile uint8_t sampleCount = 0;
+volatile uint8_t highCount = 0;
 volatile uint8_t dataBitIndex = 0;
 volatile uint8_t currentByte = 0;
 
@@ -65,6 +69,8 @@ inline bool inputIsHigh() {
 void resetByteSampler() {
   receivingByte = false;
   sampleStage = SampleStage::Idle;
+  sampleCount = 0;
+  highCount = 0;
   Timer4.stop();
 }
 
@@ -83,12 +89,13 @@ void onStartBit() {
     return;
   }
 
-  // Le flanc montant marque le début; Timer4 est réglé à deux ticks par bit.
   receivingByte = true;
   sampleStage = SampleStage::Start;
-  halfTicks = 0;
+  sampleCount = 0;
+  highCount = 0;
   dataBitIndex = 0;
   currentByte = 0;
+
   Timer4.start();
 }
 
@@ -99,34 +106,50 @@ void sampleInput() {
     return;
   }
 
+  if (inputIsHigh()) {
+    ++highCount;
+  }
+
+  ++sampleCount;
+
+  if (sampleCount < SAMPLES_PER_BIT) {
+    return;
+  }
+
+  // Same decision threshold as demodulateur_corrige.py:
+  // bit = 1 when the fraction of HIGH samples exceeds 25%.
+  const bool bitValue =
+      (static_cast<uint16_t>(highCount) * 4U >
+       SAMPLES_PER_BIT);
+
+  sampleCount = 0;
+  highCount = 0;
+
   if (sampleStage == SampleStage::Start) {
-    if (!inputIsHigh()) {
+    if (!bitValue) {
       resetByteSampler();
       return;
     }
-    sampleStage = SampleStage::Data;
-    halfTicks = 0;
-    return;
-  }
 
-  if (++halfTicks < 2) {
+    // Start bit is HIGH in this protocol.
+    sampleStage = SampleStage::Data;
     return;
   }
-  halfTicks = 0;
 
   if (dataBitIndex < 8) {
-    // Les octets CPL sont transmis LSB en premier.
-    if (inputIsHigh()) {
+    if (bitValue) {
       currentByte |= static_cast<uint8_t>(1U << dataBitIndex);
     }
+
     ++dataBitIndex;
     return;
   }
 
-  // Le stop bit doit être bas; tout autre niveau invalide l’octet.
-  if (!inputIsHigh()) {
+  // The protocol uses a LOW stop bit, matching the Python reference.
+  if (!bitValue) {
     enqueueReceivedByte(currentByte);
   }
+
   resetByteSampler();
 }
 
@@ -263,7 +286,9 @@ void configureBitRate(uint32_t requestedRate) {
 
   Timer4.stop();
   bitRate = requestedRate;
-  Timer4.setFrequency(static_cast<double>(bitRate) * 2.0);
+  Timer4.setFrequency(
+    static_cast<double>(bitRate) * SAMPLES_PER_BIT
+  );
   Serial.print("OK BAUD ");
   Serial.println(bitRate);
 }
@@ -315,9 +340,15 @@ void setup() {
   pinMode(RECEIVER_PIN, INPUT);
   // L’ISR externe ne fait que démarrer l’échantillonnage temporisé.
   Timer4.attachInterrupt(sampleInput);
-  Timer4.setFrequency(static_cast<double>(DEFAULT_BIT_RATE) * 2.0);
+  Timer4.setFrequency(
+    static_cast<double>(DEFAULT_BIT_RATE) * SAMPLES_PER_BIT
+  );
   Timer4.stop();
-  attachInterrupt(digitalPinToInterrupt(RECEIVER_PIN), onStartBit, RISING);
+  attachInterrupt(
+    digitalPinToInterrupt(RECEIVER_PIN),
+    onStartBit,
+    RISING
+  );
   Serial.println("READY RCV");
 }
 
