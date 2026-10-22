@@ -107,7 +107,7 @@ class CplTransmitterApp:
         self.role_var = tk.StringVar(value=ROLE_TRANSMITTER)
         self.mode_var = tk.StringVar(value=TYPE_TEXT)
         self.port_var = tk.StringVar()
-        self.rate_var = tk.StringVar(value="1000")
+        self.rate_var = tk.StringVar(value="25000")
         self.status_var = tk.StringVar(value="Prêt.")
         self.image_info_var = tk.StringVar(
             value="Glisse une image ici ou sélectionne un fichier."

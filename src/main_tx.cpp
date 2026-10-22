@@ -7,7 +7,7 @@ void envoyerOctet(byte donnee);
 
 namespace {
 
-constexpr uint32_t DEFAULT_BIT_RATE = 1000;
+constexpr uint32_t DEFAULT_BIT_RATE = 25000;
 constexpr uint32_t MIN_BIT_RATE = 1000;
 constexpr uint32_t MAX_BIT_RATE = 50000;
 constexpr uint16_t RING_SIZE = 1024;
